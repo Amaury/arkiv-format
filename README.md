@@ -75,8 +75,6 @@ backup.arkiv (tar)
     └── …                     # (only for regular files)
 ``` 
 
----
-
 ### 4.1 `magic.zst`
 - Compressed file containing the literal string: `arkiv001`
 - Used to quickly **identify** a valid Arkiv archive.
@@ -355,7 +353,7 @@ $ rm -rf "foo.txt.meta"
 
 ## Appendix A. License
 
-Copyright © 2025, Amaury Bouchard
+Copyright © 2025, Amaury Bouchard <amaury@amaury.net>
 
 Published under the terms of the MIT license.
 
