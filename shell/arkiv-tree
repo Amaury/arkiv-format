@@ -1,0 +1,105 @@
+#!/bin/sh
+
+# ###################################################################
+# # arkiv-tree: List entries stored in an Arkiv archive             #
+# #-----------------------------------------------------------------#
+# # Usage:                                                          #
+# # - List everything                                               #
+# #   arkiv-tree archive.arkiv                                      #
+# # - List only entries under the given prefix                      #
+# #   arkiv-tree archive.arkiv /etc/cron.d                          #
+# #-----------------------------------------------------------------#
+# # Copyright © 2025, Amaury Bouchard <amaury@amaury.net>           #
+# # Published under the terms of the MIT license.                   #
+# # https://opensource.org/license/mit                              #
+# ###################################################################
+
+# ########## UTILITY FUNCTIONS ##########
+# Print an error message and exit.
+fail() {
+	echo "$*" >&2
+	exit 1
+}
+# Compute hash (SHA512/256) from STDIN.
+# "private" function, used by hash_text().
+_sha512_256_stdin() {
+	openssl dgst -r -sha512-256 2>/dev/null | cut -d ' ' -f1 | tr 'A-Z' 'a-z'
+}
+# Compute hash from a text (prepending prefix).
+# Needs '$PREFIX_BASE64' global variable.
+hash_text() {
+	printf '%s%s' "$PREFIX_BASE64" "$1" | _sha512_256_stdin
+}
+# Decrypt + decompress metadata file and use tar to show its single entry.
+# Usage: show_metadata archive_path hash_name
+show_metadata() {
+	tar -xOf "$1" "meta/$2.tar.zst.aes" 2> /dev/null \
+	| openssl enc -d -aes-256-cbc -pbkdf2 -md sha256 -pass env:ARKIV_PASS 2> /dev/null \
+	| zstd -d -q -c 2> /dev/null \
+	| tar -tvf - 2> /dev/null \
+	|| echo "Warning: missing metadata for hash '$2'." >&2
+}
+
+# ########## COMMAND-LINE PARAMETERS ##########
+ARCHIVE_PATH="$1"
+PREFIX_FILTER="${2-}"
+
+# ########## CHECKS ##########
+# check if the ARKIV_PASS environment variable was defined
+[ "${ARKIV_PASS-}" != "" ] || fail "ARKIV_PASS environment variable is not set."
+
+# check dependencies
+missing=""
+for cmd in openssl zstd tar sed cut tr; do
+	command -v "$cmd" > /dev/null 2>&1 || missing="$missing $cmd"
+done
+[ "$missing" = "" ] || fail "Missing required tools: $missing"
+
+# check parameters count
+if [ $# -eq 0 ] || [ $# -gt 2 ]; then
+	echo "Usage: $0 ARCHIVE.arkiv [PREFIX]" >&2
+	exit 2
+fi
+
+# check magic
+MAGIC="$(
+	tar -xOf "$ARCHIVE_PATH" magic.zst 2> /dev/null \
+	| zstd -d -q -c 2> /dev/null
+)" || fail "Corrupted archive '$ARCHIVE_PATH' (unable to read 'magic.zst')."
+[ "$MAGIC" = "arkiv001" ] || fail "Invalid or corrupted archive '$ARCHIVE_PATH' (bad magic value)."
+
+# check index
+tar -tf "$ARCHIVE_PATH" index.zst.aes > /dev/null 2>&1 || fail "Corrupted archive '$ARCHIVE_PATH' (missing file 'index.zst.aes')."
+
+# ########## PROCESS ##########
+# get prefix
+PREFIX_BASE64="$(
+	tar -xOf "$ARCHIVE_PATH" prefix.zst.aes 2> /dev/null \
+	| openssl enc -d -aes-256-cbc -pbkdf2 -md sha256 -pass env:ARKIV_PASS 2> /dev/null \
+	| zstd -d -q -c 2> /dev/null \
+	| openssl base64 -A
+)" || fail "Unable to decode prefix from archive '$ARCHIVE_PATH'."
+
+# read the index line by line
+tar -xOf "$ARCHIVE_PATH" index.zst.aes 2> /dev/null \
+| openssl enc -d -aes-256-cbc -pbkdf2 -md sha256 -pass env:ARKIV_PASS 2> /dev/null \
+| zstd -d -q -c 2> /dev/null \
+| while IFS='' read -r LINE; do
+	# extract the quoted path
+	# (index lines are either: '"path"'  or '"path"=HASH')
+	PATH="$(printf '%s\n' "$LINE" | sed -n 's/^"\([^"]*\)".*/\1/p')"
+	[ -n "$PATH" ] || continue
+
+	# optional prefix filter
+	if [ "$PREFIX_FILTER" != "" ]; then
+		case "$PATH" in
+			"$PREFIX_FILTER"|"$PREFIX_FILTER"/*) : ;;
+			*) continue ;;
+		esac
+	fi
+
+	# compute HASH_NAME and list its metadata (ls-like)
+	HASH_NAME="$(hash_text "$PATH")"
+	show_metadata "$ARCHIVE_PATH" "$HASH_NAME"
+done
+

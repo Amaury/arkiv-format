@@ -1,0 +1,243 @@
+#!/bin/sh
+
+# ###################################################################
+# # arkiv-build: Create an Arkiv archive file and store files in it #
+# #-----------------------------------------------------------------#
+# # Usage: arkiv-build archive.arkiv file1 file2 dir1 dir2...       #
+# #-----------------------------------------------------------------#
+# # Copyright © 2025, Amaury Bouchard <amaury@amaury.net>           #
+# # Published under the terms of the MIT license.                   #
+# # https://opensource.org/license/mit                              #
+# ###################################################################
+
+# ########## UTILITY FUNCTIONS ##########
+# Print an error message and exit.
+fail() {
+	echo "$*" >&2
+	exit 1
+}
+# Encrypt a file.
+# Usage: cypher input_file output_file ["noerr"]
+cypher() {
+	if ! openssl enc -aes-256-cbc -pbkdf2 -md sha256 -salt -pass env:ARKIV_PASS -in "$1" -out "$2"; then
+		[ "$3" = "noerr" ] || fail "Unable to encrypt file '$1' to '$2'."
+		return 1
+	fi
+}
+# Compute hash (SHA512/256) from STDIN.
+# "private" function, used by hash_text() and hash_file().
+_sha512_256_stdin() {
+	openssl dgst -r -sha512-256 2>/dev/null | cut -d ' ' -f1 | tr 'A-Z' 'a-z'
+}
+# Compute hash from a text (prepending prefix).
+# Needs '$PREFIX_BASE64' global variable.
+hash_text() {
+	printf '%s%s' "$PREFIX_BASE64" "$1" | _sha512_256_stdin
+}
+# Compute hash from a regular file (prepending prefix).
+# Needs '$PREFIX_BASE64' global variable.
+hash_file() {
+	(printf '%s' "$PREFIX_BASE64"; cat "$1") | _sha512_256_stdin
+}
+# Quote a path in the index file (escape \ and " and wrap in quotes).
+quote_path() {
+	path="$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+	printf '"%s"' "$path"
+}
+# Create the 'meta/HASH_NAME.tar.zst.aes' file.
+make_meta_tar() {
+	src="$1"
+	out="$2"
+
+	# refuse archiving the root directory
+	[ "$src" != "/" ] || fail "Refusing to archive root directory '/'"
+
+	temp_dir="$(mktemp -d)" || fail "Unable to create temporary directory."
+
+	# normalize path as tar member: strip leading slash
+	relative_path="${src#/}"
+
+	dir="$(dirname -- "$relative_path")"
+	base="$(basename -- "$relative_path")"
+
+	mkdir -p "$temp_dir/$dir" 2> /dev/null || {
+		rm -rf "$temp_dir"
+		fail "Unable to create directory '$temp_dir/$dir'."
+	}
+
+	# recreate object shape
+	if [ -L "$src" ]; then
+		target="$(readlink "$src")" || { rm -rf "$temp_dir"; fail "Unable to read link '$src'."; }
+		(cd "$temp_dir/$dir" && ln -s "$target" "$base") || { rm -rf "$temp_dir"; fail "Unable to create symlink '$temp_dir/$dir/$base' -> '$target'."; }
+	elif [ -d "$src" ]; then
+		mkdir -p "$temp_dir/$relative_path" 2> /dev/null || { rm -rf "$temp_dir"; fail "Unable to create directory '$temp_dir/$relative_path'."; }
+	elif [ -p "$src" ]; then
+		(cd "$temp_dir/$dir" && mkfifo "$base") || { rm -rf "$temp_dir"; fail "Unable to create FIFO '$temp_dir/$dir/$base'."; }
+	elif [ -b "$src" ] || [ -c "$src" ] || [ -S "$src" ]; then
+		rm -rf "$temp_dir"
+		fail "Unsupported special file '$src'."
+	else
+		touch "$temp_dir/$relative_path" || { rm -rf "$temp_dir"; fail "Unable to create empty file '$temp_dir/$relative_path'."; }
+	fi
+
+	# Best-effort: copy mode/uid/gid/mtime
+	case "$(uname -s 2>/dev/null || echo unknown)" in
+		*BSD|Darwin)
+			MODE="$(stat -f '%Lp' "$src" 2>/dev/null || echo 0644)"
+			UID="$(stat -f '%u'  "$src" 2>/dev/null || echo 0)"
+			GID="$(stat -f '%g'  "$src" 2>/dev/null || echo 0)"
+			MTIME="$(stat -f '%m' "$src" 2>/dev/null || date +%s)"
+			;;
+		*)
+			MODE="$(stat -c '%a' "$src" 2>/dev/null || echo 0644)"
+			UID="$(stat -c '%u' "$src" 2>/dev/null || echo 0)"
+			GID="$(stat -c '%g'  "$src" 2>/dev/null || echo 0)"
+			MTIME="$(stat -c '%Y' "$src" 2>/dev/null || date +%s)"
+			;;
+	esac
+	[ -L "$src" ] || chmod "$MODE" "$temp_dir/$relative_path" 2>/dev/null || true
+	[ -L "$src" ] || chown "$UID:$GID" "$temp_dir/$relative_path" 2>/dev/null || true
+	# mtime management ('date -d @' on GNU systems; 'date -r' on BSD; else skip)
+	if date -d "@$MTIME" "+%Y%m%d%H%M.%S" >/dev/null 2>&1; then
+		timestamp="$(date -d "@$MTIME" "+%Y%m%d%H%M.%S")" && touch -t "$timestamp" "$temp_dir/$relative_path" 2>/dev/null || true
+	elif date -r "$MTIME" "+%Y%m%d%H%M.%S" >/dev/null 2>&1; then
+		timestamp="$(date -r "$MTIME" "+%Y%m%d%H%M.%S")" && touch -t "$timestamp" "$temp_dir/$relative_path" 2>/dev/null || true
+	else
+		true
+	fi
+	# tar + zstd + encryption
+	if ! (cd "$temp_dir" && tar -cf - "$relative_path") | zstd -q -c | cypher /dev/stdin "$out" "noerr"; then
+		rm -rf "$temp_dir"
+		fail "Unable to build meta for file '$src'."
+	fi
+	# cleanup
+	rm -rf "$temp_dir"
+}
+# Compress and encrypt a file (used for 'data/HASH_DATA.zst.aes' file).
+# Usage: make_data_blob path/to/source path/to/destination.zst.aes
+compress_encrypt_file() {
+	input_file="$1"
+	output_file="$2"
+	# create a private temp dir to host the FIFO (portable; avoid mktemp -u)
+	temp_dir="$(mktemp -d)" || fail "Unable to create temporary directory."
+	fifo="$temp_dir/pipe"
+	if ! mkfifo "$fifo"; then
+		rm -rf "$temp_dir"
+		fail "Unable to create FIFO."
+	fi
+	# consumer process: run in background: reads from FIFO, writes encrypted OUT.
+	(
+		if ! cypher "$fifo" "$output_file" "noerr"; then
+			exit 99
+		fi
+	) &
+	cpid=$!
+	# producer: run in foreground; compress input_file into the FIFO (foreground).
+	if ! zstd -q -c -- "$input_file" > "$fifo"; then
+		# producer failed (bad input, SIGPIPE if consumer died, etc.)
+		rm -f "$fifo"
+		# ensure the background consumer is not left running
+		wait "$cpid" 2> /dev/null
+		rm -rf "$temp_dir"
+		fail "Unable to compress file '$input_file'."
+	fi
+	# Close and remove the FIFO now that producer is done writing
+	rm -f "$fifo"
+	# Check consumer's exit status (encryption stage).
+	if ! wait "$cpid"; then
+		rm -rf "$temp_dir"
+		fail "Unable to encrypt file '$input_file' to '$output_file'."
+	fi
+
+	# Cleanup temp dir
+	rm -rf "$temp_dir"
+}
+
+# ########## CHECKS ##########
+# check if the ARKIV_PASS environment variable was defined
+[ "${ARKIV_PASS-}" != "" ] || fail "ARKIV_PASS environment variable is not set."
+
+# check dependencies
+missing=""
+for cmd in openssl zstd tar find sort sed cut tr stat readlink mkfifo mktemp dirname basename touch date uname; do
+	command -v "$cmd" > /dev/null 2>&1 || missing="$missing $cmd"
+done
+[ "$missing" = "" ] || fail "Missing required tools: $missing"
+
+# check parameters count
+if [ $# -lt 2 ]; then
+	echo "Usage: $0 ARCHIVE.arkiv PATH..." >&2
+	exit 2
+fi
+
+# ########## ARCHIVE CREATION ##########
+OUTPUT_ARCHIVE="$1"
+# create temporary output directory
+OUTPUT_DIR="$OUTPUT_ARCHIVE.d"
+shift
+mkdir -p "$OUTPUT_DIR" 2> /dev/null || fail "Unable to create directory '$OUTPUT_DIR'."
+mkdir -p "$OUTPUT_DIR/meta" 2> /dev/null || fail "Unable to create directory '$OUTPUT_DIR/meta'."
+mkdir -p "$OUTPUT_DIR/data" 2> /dev/null || fail "Unable to create directory '$OUTPUT_DIR/data'."
+trap 'rm -rf "$OUTPUT_DIR"' HUP INT TERM # remove the temporary directory in any case of script exit
+
+# create magic.zst
+if ! printf '%s' "arkiv001" | zstd -q -c > "$OUTPUT_DIR/magic.zst"; then
+	rm -rf "$OUTPUT_DIR"
+	fail "Unable to create magic.zst."
+fi
+
+# create prefix.zst.aes
+openssl rand 8 > "$OUTPUT_DIR/prefix.bin" || { rm -rf "$OUTPUT_DIR"; fail "Unable to generate file '$OUTPUT_DIR/prefix.bin'."; }
+PREFIX_BASE64="$(openssl base64 -A < "$OUTPUT_DIR/prefix.bin")" || { rm -rf "$OUTPUT_DIR"; fail "Unable to base64-encode prefix file '$OUTPUT_DIR/prefix.bin'."; }
+if ! zstd -q -c -- "$OUTPUT_DIR/prefix.bin" | cypher /dev/stdin "$OUTPUT_DIR/prefix.zst.aes" "noerr"; then
+	rm -rf "$OUTPUT_DIR"
+	fail "Unable to encrypt/compress prefix file."
+fi
+rm -f "$OUTPUT_DIR/prefix.bin"
+
+# create empty index (plain text)
+touch "$OUTPUT_DIR/index.txt"
+
+# collect inputs (include dir itself, then contents)
+touch "$OUTPUT_DIR/paths.txt"
+for path in "$@"; do
+	printf '%s\n' "$path" >> "$OUTPUT_DIR/paths.txt"
+	if [ -d "$path" ] && [ ! -L "$path" ]; then
+		find -P "$path" -mindepth 1 -print >> "$OUTPUT_DIR/paths.txt"
+	fi
+done
+sort -u "$OUTPUT_DIR/paths.txt" -o "$OUTPUT_DIR/paths.txt"
+
+# process files
+while IFS='' read -r SRC; do
+	[ "$SRC" != "" ] || continue
+	# generate meta file
+	HASH_NAME="$(hash_text "$SRC")"
+	make_meta_tar "$SRC" "$OUTPUT_DIR/meta/${HASH_NAME}.tar.zst.aes"
+	# add entry in index file
+	quote_path "$SRC" >> "$OUTPUT_DIR/index.txt"
+	# add data file (for regular files)
+	if [ -f "$SRC" ] && [ ! -L "$SRC" ] && [ ! -p "$SRC" ]; then
+		# manage data file
+		HASH_DATA="$(hash_file "$SRC")"
+		if [ ! -f "$OUTPUT_DIR/data/${HASH_DATA}.zst.aes" ]; then
+			compress_encrypt_file "$SRC" "$OUTPUT_DIR/data/${HASH_DATA}.zst.aes"
+		fi
+		printf '=%s' "$HASH_DATA" >> "$OUTPUT_DIR/index.txt"
+	fi
+	# end of index entry
+	printf '\n' >> "$OUTPUT_DIR/index.txt"
+done < "$OUTPUT_DIR/paths.txt"
+rm -f "$OUTPUT_DIR/paths.txt"
+
+# compress + encrypt index file
+if ! zstd -q -c -- "$OUTPUT_DIR/index.txt" | cypher /dev/stdin "$OUTPUT_DIR/index.zst.aes" "noerr"; then
+	rm -rf "$OUTPUT_DIR"
+	fail "Unable to encrypt/compress index file."
+fi
+
+# generate final archive
+tar -C "$OUTPUT_DIR" -cf "$OUTPUT_ARCHIVE" magic.zst prefix.zst.aes index.zst.aes meta data || { rm -rf "$OUTPUT_DIR"; fail "Tar packing failed."; }
+rm -rf "$OUTPUT_DIR"
+echo "Created $OUTPUT_ARCHIVE"
+

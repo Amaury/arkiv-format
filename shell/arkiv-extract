@@ -1,0 +1,326 @@
+#!/bin/sh
+
+# ###################################################################
+# # arkiv-extract: Restore files/trees from an Arkiv archive        #
+# #-----------------------------------------------------------------#
+# # Usage:                                                          #
+# # * extract all to ./                                             #
+# #   arkiv-extract ARCHIVE.arkiv                                   #
+# # * extract all to DEST/                                          #
+# #   arkiv-extract ARCHIVE.arkiv DEST                              #
+# # * extract PREFIX(es) to DEST/                                   #
+# #   arkiv-extract ARCHIVE.arkiv DEST PREFIX...                    #
+# #-----------------------------------------------------------------#
+# # Copyright © 2025, Amaury Bouchard <amaury@amaury.net>           #
+# # Published under the terms of the MIT license.                   #
+# # https://opensource.org/license/mit                              #
+# ###################################################################
+
+# ########## UTILITY FUNCTIONS ##########
+# Print an error message and exit (fatal).
+fail() {
+	echo "$*" >&2
+	exit 1
+}
+# Compute hash (SHA512/256) from STDIN.
+# "private" function, used by hash_text().
+_sha512_256_stdin() {
+	openssl dgst -r -sha512-256 2>/dev/null | cut -d ' ' -f1 | tr 'A-Z' 'a-z'
+}
+# Compute hash from a text (prepending prefix).
+# Needs '$PREFIX_BASE64' global variable.
+hash_text() {
+	printf '%s%s' "$PREFIX_BASE64" "$1" | _sha512_256_stdin
+}
+# Restore a data file into a destination file.
+# Needs '$ARCHIVE_PATH' global variable.
+# Usage: restore_file_data HASH_DATA DEST_FILE
+restore_file_data() {
+	hash="$1";
+	dest="$2"
+	dest_dir="$(dirname -- "$dest")"
+	if ! mkdir -p "$dest_dir" 2> /dev/null; then
+		echo "Unable to create directory '$dest_dir'." >&2
+		return 1
+	fi
+	if ! tar -xOf "$ARCHIVE_PATH" "data/$hash.zst.aes" 2> /dev/null \
+	   | openssl enc -d -aes-256-cbc -pbkdf2 -md sha256 -pass env:ARKIV_PASS \
+	   | zstd -d -q -c > "$dest"; then
+		echo "Unable to restore data file 'data/$hash.zst.aes' to '$dest'." >&2
+		return 1
+	fi
+	return 0
+}
+# Apply metadata (mode/uid/gid/mtime) from meta entry to destination path.
+# Usage: apply_metadata PATH_TO_EXTRACTED_META DEST
+apply_metadata() {
+	src=$1
+	dest=$2
+
+	case "$(uname -s 2> /dev/null || echo unknown)" in
+		*BSD|Darwin)
+			MODE="$(stat -f '%Lp' "$src" 2> /dev/null || echo 0644)"
+			UID="$(stat -f '%u'  "$src" 2> /dev/null || echo 0)"
+			GID="$(stat -f '%g'  "$src" 2> /dev/null || echo 0)"
+			MTIME="$(stat -f '%m' "$src" 2> /dev/null || date +%s)"
+			;;
+		*)
+			MODE="$(stat -c '%a' "$src" 2> /dev/null || echo 0644)"
+			UID="$(stat -c '%u' "$src" 2> /dev/null || echo 0)"
+			GID="$(stat -c '%g' "$src" 2> /dev/null || echo 0)"
+			MTIME="$(stat -c '%Y' "$src" 2> /dev/null || date +%s)"
+			;;
+	esac
+	# chmod/chown/mtime (skip on symlinks; not portable to change)
+	if [ ! -L "$dest" ]; then
+		# chmod/chown
+		chmod "$MODE" "$dest" 2>/dev/null
+		chown "$UID:$GID" "$dest" 2>/dev/null
+		# mtime
+		if date -d "@$MTIME" "+%Y%m%d%H%M.%S" >/dev/null 2>&1; then
+			TIMESTAMP="$(date -d "@$MTIME" "+%Y%m%d%H%M.%S")"
+			touch -t "$TIMESTAMP" "$dest" 2> /dev/null
+		elif date -r "$MTIME" "+%Y%m%d%H%M.%S" >/dev/null 2>&1; then
+			TIMESTAMP="$(date -r "$MTIME" "+%Y%m%d%H%M.%S")"
+			touch -t "$TIMESTAMP" "$dest" 2> /dev/null
+		fi
+	fi
+}
+# Test if PATH matches any of the provided prefixes ($@).
+# Returns 0 if matches (or if no prefixes provided), 1 otherwise.
+# Usage: matches_prefixes PATH PREFIX1 PREFIX2...
+matches_prefixes() {
+	path="$1"
+	shift
+	# matches if no prefixes provided
+	if [ $# -eq 0 ]; then
+		return 0
+	fi
+	# loop on matches
+	for p in "$@"; do
+		case "$path" in
+			"$p"|"$p"/*)
+				return 0
+				;;
+		esac
+	done
+	# no match
+	return 1
+}
+# Cleanup function (called by trap).
+# Uses '$fifo', '$PRODUCER_PID' and '$TEMP_DIR' global variables.
+cleanup() {
+	# close file descriptor 3 (FIFO) if open
+	exec 3<&- 2> /dev/null || true
+	# kill producer process if alive
+	[ -n "${PRODUCER_PID-}" ] && kill "$PRODUCER_PID" 2> /dev/null || true
+	rm -f "$fifo" 2> /dev/null
+	rm -rf "$TEMP_DIR" 2> /dev/null
+}
+
+
+# ########## CHECKS AND PARAMETERS ##########
+# check if the ARKIV_PASS environment variable was defined
+[ "${ARKIV_PASS-}" != "" ] || fail "ARKIV_PASS environment variable is not set."
+
+# check dependencies
+missing=""
+for cmd in openssl zstd tar sed cut tr find readlink mkfifo chmod chown stat date mktemp touch dirname; do
+	command -v "$cmd" >/dev/null 2>&1 || missing="$missing $cmd"
+done
+[ "$missing" = "" ] || fail "Missing required tools: $missing"
+
+# check parameters count
+if [ $# -lt 1 ]; then
+	echo "Usage:" >&2
+	echo "  $0 ARCHIVE.arkiv" >&2
+	echo "  $0 ARCHIVE.arkiv DEST" >&2
+	echo "  $0 ARCHIVE.arkiv DEST PREFIX..." >&2
+	exit 2
+fi
+
+# command-line parameters
+ARCHIVE_PATH="$1"
+if [ $# -eq 1 ]; then
+	DEST_DIR="."
+	shift 1
+elif [ $# -eq 2 ]; then
+	DEST_DIR="$2"
+	shift 2
+else
+	DEST_DIR="$2"
+	shift 2
+fi
+
+# check magic
+MAGIC="$(
+	tar -xOf "$ARCHIVE_PATH" magic.aes \
+	| openssl enc -d -aes-256-cbc -pbkdf2 -md sha256 -pass env:ARKIV_PASS 2> /dev/null
+)"  || fail "Corrupted archive '$ARCHIVE_PATH' (unable to read 'magic.aes')."
+[ "$MAGIC" = "arkiv001" ] || fail "Invalid or corrupted archive '$ARCHIVE_PATH' (bad magic value)."
+
+# check index
+tar -tf "$ARCHIVE_PATH" index.zst.aes > /dev/null 2>&1 || fail "Corrupted archive '$ARCHIVE_PATH' (missing file 'index.zst.aes')."
+
+# check destination directory
+if ! mkdir -p "$DEST_DIR" 2> /dev/null; then
+	fail "The output path '$DEST_DIR' is not a directory."
+fi
+
+# ########## INIT ##########
+# read and decode the hash prefix
+PREFIX_BASE64="$(
+	tar -xOf "$ARCHIVE_PATH" prefix.aes \
+	| openssl enc -d -aes-256-cbc -pbkdf2 -md sha256 -pass env:ARKIV_PASS 2> /dev/null \
+	| openssl base64 -A
+)" || fail "Unable to decode prefix from archive '$ARCHIVE_PATH'."
+
+# create FIFO to stream the index from producer to consumer processes
+TEMP_DIR="$(mktemp -d)" || fail "mktemp failed"
+fifo="$TEMP_DIR/index.fifo"
+if ! mkfifo "$fifo" 2> /dev/null; then
+	rm -rf "$TEMP_DIR" 2> /dev/null
+	fail "Unable to create FIFO '$fifo'."
+fi
+
+# cleanup in case of unexpected exit
+trap 'cleanup' HUP INT TERM
+
+# ########## PRODUCER SUB-PROCESS ##########
+# extract/decrypt/decompress index into the FIFO
+(
+	tar -xOf "$ARCHIVE_PATH" index.zst.aes 2>/dev/null \
+	| openssl enc -d -aes-256-cbc -pbkdf2 -md sha256 -pass env:ARKIV_PASS 2>/dev/null \
+	| zstd -d -q -c 2>/dev/null \
+	> "$fifo"
+) &
+PRODUCER_PID=$!
+
+# errors flag
+errors=0
+
+# ########## CONSUMER ##########
+# open a new file descriptor on the FIFO (to avoid open/close the FIFO on each loop)
+exec 3<"$fifo"
+# read lines from FIFO in the current shell
+while IFS='' read -r LINE <&3; do
+	PATH="$(printf '%s\n' "$LINE" | sed -n 's/^"\([^"]*\)".*/\1/p')"
+	[ -n "$PATH" ] || continue
+
+	# filter by prefixes (if any were provided)
+	if ! matches_prefixes "$PATH" "$@"; then
+		continue
+	fi
+
+	# compute HASH_NAME for meta
+	NAME_HASH="$(hash_text "$PATH")"
+
+	# destination absolute path
+	REL="${PATH#/}" # remove leading slash (if there is one)
+	OUT_PATH="$DEST_DIR/$REL"
+	PARENT="$(dirname -- "$OUT_PATH")"
+	if ! mkdir -p "$PARENT" 2> /dev/null; then
+		echo "Unable to create destination directory '$PARENT'." >&2
+		errors=1
+		continue
+	fi
+
+	# extract meta
+	if ! mkdir "$TEMP_DIR/$NAME_HASH" 2> /dev/null; then
+		fail "Unable to create directory '$TEMP_DIR/$NAME_HASH'."
+	fi
+	if ! tar -xOf "$ARCHIVE_PATH" "meta/$NAME_HASH.tar.zst.aes" 2> /dev/null \
+	   | openssl enc -d -aes-256-cbc -pbkdf2 -md sha256 -pass env:ARKIV_PASS 2>/dev/null \
+	   | zstd -d -q -c 2> /dev/null \
+	   | (cd "$TEMP_DIR/$NAME_HASH" && tar -xpf -) 2> /dev/null; then
+		errors=1
+		rm -rf "$TEMP_DIR/$NAME_HASH" 2> /dev/null
+		echo "Error: missing or invalid metadata file 'meta/$NAME_HASH.tar.zst.aes'." >&2
+		continue
+	fi
+	entry="$(cd "$TEMP_DIR/$NAME_HASH" && find . -mindepth 1 -maxdepth 1 -print | sed 's|^\./||')"
+	if [ "$entry" = "" ]; then
+		fail "Empty metadata file 'meta/$NAME_HASH.tar.zst.aes'."
+	fi
+	META_PATH="$TEMP_DIR/$NAME_HASH/$entry"
+
+	# if we create a file/symlink/FIFO (not a directory)
+	# if a directory already exists => warning
+	# if a file/symlink/FIFO already exists => delete it
+	if [ ! -d "$META_PATH" ]; then
+		if [ -e "$OUT_PATH" ] || [ -L "$OUT_PATH" ]; then
+			if [ -d "$OUT_PATH" ] && [ ! -L "$OUT_PATH" ]; then
+				echo "Unable to create element '$OUT_PATH'. Path already exists as a directory." >&2
+				errors=1
+				rm -rf "$TEMP_DIR/$NAME_HASH" 2> /dev/null
+				continue
+			fi
+			rm -f "$OUT_PATH" 2> /dev/null
+		fi
+	fi
+	# create destination file/directory/symlink/FIFO
+	if [ -L "$META_PATH" ]; then
+		# symlink
+		TARGET="$(readlink "$META_PATH")" || {
+			rm -rf "$TEMP_DIR/$NAME_HASH" 2> /dev/null
+			echo "Unable to read link '$META_PATH'." >&2
+			errors=1
+			continue
+		}
+		if ! ln -s "$TARGET" "$OUT_PATH" 2> /dev/null; then
+			rm -rf "$TEMP_DIR/$NAME_HASH" 2> /dev/null
+			echo "Unable to create symbolic link '$OUT_PATH' -> '$TARGET'." >&2
+			errors=1
+			continue
+		fi
+	elif [ -d "$META_PATH" ]; then
+		# directory
+		if ! mkdir -p "$OUT_PATH" 2> /dev/null; then
+			rm -rf "$TEMP_DIR/$NAME_HASH" 2> /dev/null
+			echo "Unable to create extracted directory '$OUT_PATH'." >&2
+			errors=1
+			continue
+		fi
+	elif [ -p "$META_PATH" ]; then
+		# FIFO
+		if ! mkfifo "$OUT_PATH" 2> /dev/null; then
+			rm -rf "$TEMP_DIR/$NAME_HASH" 2> /dev/null
+			echo "Unable to create FIFO '$OUT_PATH'." >&2
+			errors=1
+			continue
+		fi
+	else
+		# regular file
+		DATA_HASH="$(printf '%s\n' "$LINE" | sed -n 's/^"[^"]*"=\([0-9a-f][0-9a-f]*\).*/\1/p')"
+		if [ "$DATA_HASH" = "" ]; then
+			if ! touch "$OUT_PATH" 2> /dev/null; then
+				rm -rf "$TEMP_DIR/$NAME_HASH" 2> /dev/null
+				echo "Unable to create empty file '$OUT_PATH'." >&2
+				errors=1
+				continue
+			fi
+		else
+			if ! restore_file_data "$DATA_HASH" "$OUT_PATH"; then
+				rm -rf "$TEMP_DIR/$NAME_HASH" 2> /dev/null
+				errors=1
+				continue
+			fi
+		fi
+	fi
+	# apply metadata to the created file/directory/symlink/
+	apply_metadata "$META_PATH" "$OUT_PATH"
+	# remove temporary directory used to extract metadata file
+	rm -rf "$TEMP_DIR/$NAME_HASH" 2> /dev/null
+done
+# close the opened file descriptor
+exec 3<&-
+
+# wait for producer exit and cleanup
+if ! wait "$PRODUCER_PID"; then
+	errors=1
+fi
+cleanup
+
+# exit status per spec
+[ "$errors" -eq 0 ] || exit 1
+
