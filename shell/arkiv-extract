@@ -204,19 +204,19 @@ errors=0
 exec 3<"$fifo"
 # read lines from FIFO in the current shell
 while IFS='' read -r LINE <&3; do
-	PATH="$(printf '%s\n' "$LINE" | sed -n 's/^"\([^"]*\)".*/\1/p')"
-	[ -n "$PATH" ] || continue
+	ENTRY_PATH="$(printf '%s\n' "$LINE" | sed -n 's/^"\([^"]*\)".*/\1/p')"
+	[ -n "$ENTRY_PATH" ] || continue
 
 	# filter by prefixes (if any were provided)
-	if ! matches_prefixes "$PATH" "$@"; then
+	if ! matches_prefixes "$ENTRY_PATH" "$@"; then
 		continue
 	fi
 
 	# compute HASH_NAME for meta
-	NAME_HASH="$(hash_text "$PATH")"
+	NAME_HASH="$(hash_text "$ENTRY_PATH")"
 
 	# destination absolute path
-	REL="${PATH#/}" # remove leading slash (if there is one)
+	REL="${ENTRY_PATH#/}" # remove leading slash (if there is one)
 	OUT_PATH="$DEST_DIR/$REL"
 	PARENT="$(dirname -- "$OUT_PATH")"
 	if ! mkdir -p "$PARENT" 2> /dev/null; then
