@@ -36,7 +36,7 @@ hash_text() {
 # Needs '$ARCHIVE_PATH' global variable.
 # Usage: restore_file_data HASH_DATA DEST_FILE
 restore_file_data() {
-	hash="$1";
+	hash="$1"
 	dest="$2"
 	dest_dir="$(dirname -- "$dest")"
 	if ! mkdir -p "$dest_dir" 2> /dev/null; then
@@ -56,7 +56,6 @@ restore_file_data() {
 apply_metadata() {
 	src=$1
 	dest=$2
-
 	case "$(uname -s 2> /dev/null || echo unknown)" in
 		*BSD|Darwin)
 			MODE="$(stat -f '%Lp' "$src" 2> /dev/null || echo 0644)"
@@ -155,7 +154,7 @@ fi
 MAGIC="$(
 	tar -xOf "$ARCHIVE_PATH" magic.zst \
 	| zstd -d -q -c 2> /dev/null
-)"  || fail "Corrupted archive '$ARCHIVE_PATH' (unable to read 'magic.zst')."
+)" || fail "Corrupted archive '$ARCHIVE_PATH' (unable to read 'magic.zst')."
 [ "$MAGIC" = "arkiv001" ] || fail "Invalid or corrupted archive '$ARCHIVE_PATH' (bad magic value)."
 
 # check index
@@ -169,7 +168,7 @@ fi
 # ########## INIT ##########
 # read and decode the hash prefix
 PREFIX_BASE64="$(
-	tar -xOf "$ARCHIVE_PATH" prefix.zst.aes \
+	tar -xOf "$ARCHIVE_PATH" prefix.zst.aes 2> /dev/null \
 	| openssl enc -d -aes-256-cbc -pbkdf2 -md sha256 -pass env:ARKIV_PASS 2> /dev/null \
 	| zstd -d -q -c 2> /dev/null \
 	| openssl base64 -A
@@ -238,11 +237,16 @@ while IFS='' read -r LINE <&3; do
 		echo "Error: missing or invalid metadata file 'meta/$NAME_HASH.tar.zst.aes'." >&2
 		continue
 	fi
-	entry="$(cd "$TEMP_DIR/$NAME_HASH" && find . -mindepth 1 -maxdepth 1 -print | sed 's|^\./||')"
-	if [ "$entry" = "" ]; then
-		fail "Empty metadata file 'meta/$NAME_HASH.tar.zst.aes'."
+
+	# generate metadata file's path
+	META_PATH="$TEMP_DIR/$NAME_HASH/$REL"
+	# check metadata file existence
+	if [ ! -e "$META_PATH" ] && [ ! -L "$META_PATH" ]; then
+		echo "Error: metadata path not found '$META_PATH'." >&2
+		rm -rf "$TEMP_DIR/$NAME_HASH" 2> /dev/null
+		errors=1
+		continue
 	fi
-	META_PATH="$TEMP_DIR/$NAME_HASH/$entry"
 
 	# if we create a file/symlink/FIFO (not a directory)
 	# if a directory already exists => warning
