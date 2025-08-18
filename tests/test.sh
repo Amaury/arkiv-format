@@ -25,10 +25,9 @@ export ARKIV_PASS="$(head -c 10 /dev/urandom | base64)"
 
 # ########## TEST 1: FILES ##########
 # archive creation
-mkdir res-01
+mkdir res-01 || fail "TEST 1: unable to create directory 'res-01'"
 cd src-01
 if ! ../../shell/arkiv-build ../a.arkiv a.txt z.txt; then
-	echo "'$PATH'"
 	cd - > /dev/null
 	rm -rf ./a.arkiv ./res-01
 	fail "TEST 1: arkiv-build"
@@ -57,7 +56,7 @@ if ! arkiv-extract a.arkiv res-01 ||
 fi
 rm -rf ./res-01
 # extract one file
-mkdir res-01
+mkdir res-01 || fail "TEST 1: unable to create directory 'res-01'"
 if ! arkiv-extract a.arkiv res-01 z.txt ||
    [ "$(cat res-01/z.txt 2> /dev/null)" != "zyxwv" ] ||
    [ "$(ls -l res-01/z.txt | grep "\-rwxr-xr-x" 2> /dev/null)" = "" ]; then
@@ -69,7 +68,7 @@ success "TEST 1"
 
 # ########## TEST 2: DIRECTORIES ##########
 # archive creation
-mkdir res-02
+mkdir res-02 || fail "TEST 2: unable to create directory 'res-02'"
 if ! arkiv-build a.arkiv src-02; then
 	rm -rf ./a.arkiv ./res-02
 	fail "TEST 2: arkiv-build"
@@ -88,7 +87,7 @@ if ! arkiv-extract a.arkiv res-02 ||
 fi
 rm -rf ./res-02
 # extract one file
-mkdir res-02
+mkdir res-02 || fail "TEST 2: unable to create directory 'res-02'"
 if ! arkiv-extract a.arkiv res-02 "src-02/sub2/sub3/z.txt" ||
    [ "$(cat "res-02/src-02/sub2/sub3/z.txt" 2> /dev/null)" != "zyxwv" ] ||
    [ "$(ls -l "res-02/src-02/sub2/sub3/z.txt" | grep "\-rwxr-xr-x" 2> /dev/null)" = "" ]; then
@@ -97,4 +96,45 @@ if ! arkiv-extract a.arkiv res-02 "src-02/sub2/sub3/z.txt" ||
 fi
 rm -rf ./a.arkiv ./res-02
 success "TEST 2"
+
+# ########## TEST 3: SYMLINKS ##########
+# archive creation
+mkdir res-03 || fail "TEST 3: unable to create directory 'res-03'"
+if ! arkiv-build a.arkiv src-03; then
+	rm -rf ./a.arkiv ./res-03
+	fail "TEST 3: arkiv-build"
+fi
+# extraction
+if ! arkiv-extract a.arkiv res-03 ||
+   [ "$(readlink "res-03/src-03/b.txt" 2> /dev/null)" != "a.txt" ] ||
+   [ "$(cat "res-03/src-03/b.txt" 2> /dev/null)" != "abcde" ]; then
+	rm -rf ./a.arkiv ./res-03
+	fail "TEST 3: arkiv-extract"
+fi
+rm -rf ./a.arkiv ./res-03
+success "TEST 3"
+
+# ########## TEST 4: FIFO ##########
+# archive creation
+mkdir src-04 || fail "TEST 4: unable to create directory 'src-04'"
+if ! mkdir res-04; then
+	rm -rf ./src-04
+	fail "TEST 4: unable to create directory 'res-04'"
+fi
+if ! mkfifo src-04/fifo; then
+	rm -rf ./src-04 ./res-04
+	fail "TEST 4: unable to create fifo (src-04/fifo'"
+fi
+if ! arkiv-build a.arkiv src-04; then
+	rm -rf ./a.arkiv ./src-04 ./res-04
+	fail "TEST 4: arkiv-build"
+fi
+# extraction
+if ! arkiv-extract a.arkiv res-04 ||
+   [ ! -p "res-04/src-04/fifo" ]; then
+	rm -rf ./a.arkiv ./src-04 ./res-04
+	fail "TEST 4: arkiv-extract"
+fi
+rm -rf ./a.arkiv ./src-04 ./res-04
+success "TEST 4"
 
