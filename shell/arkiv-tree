@@ -87,19 +87,19 @@ tar -xOf "$ARCHIVE_PATH" index.zst.aes 2> /dev/null \
 | while IFS='' read -r LINE; do
 	# extract the quoted path
 	# (index lines are either: '"path"'  or '"path"=HASH')
-	PATH="$(printf '%s\n' "$LINE" | sed -n 's/^"\([^"]*\)".*/\1/p')"
-	[ -n "$PATH" ] || continue
+	ENTRY_PATH="$(printf '%s\n' "$LINE" | sed -n 's/^"\([^"]*\)".*/\1/p')"
+	[ -n "$ENTRY_PATH" ] || continue
 
 	# optional prefix filter
 	if [ "$PREFIX_FILTER" != "" ]; then
-		case "$PATH" in
+		case "$ENTRY_PATH" in
 			"$PREFIX_FILTER"|"$PREFIX_FILTER"/*) : ;;
 			*) continue ;;
 		esac
 	fi
 
 	# compute HASH_NAME and list its metadata (ls-like)
-	HASH_NAME="$(hash_text "$PATH")"
+	HASH_NAME="$(hash_text "$ENTRY_PATH")"
 	show_metadata "$ARCHIVE_PATH" "$HASH_NAME"
 done
 
