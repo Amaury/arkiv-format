@@ -118,7 +118,6 @@ cleanup() {
 	rm -rf "$TEMP_DIR" 2> /dev/null
 }
 
-
 # ########## CHECKS AND PARAMETERS ##########
 # check if the ARKIV_PASS environment variable was defined
 [ "${ARKIV_PASS-}" != "" ] || fail "ARKIV_PASS environment variable is not set."
@@ -154,9 +153,9 @@ fi
 
 # check magic
 MAGIC="$(
-	tar -xOf "$ARCHIVE_PATH" magic.aes \
-	| openssl enc -d -aes-256-cbc -pbkdf2 -md sha256 -pass env:ARKIV_PASS 2> /dev/null
-)"  || fail "Corrupted archive '$ARCHIVE_PATH' (unable to read 'magic.aes')."
+	tar -xOf "$ARCHIVE_PATH" magic.zst \
+	| zstd -d -q -c 2> /dev/null
+)"  || fail "Corrupted archive '$ARCHIVE_PATH' (unable to read 'magic.zst')."
 [ "$MAGIC" = "arkiv001" ] || fail "Invalid or corrupted archive '$ARCHIVE_PATH' (bad magic value)."
 
 # check index
@@ -170,8 +169,9 @@ fi
 # ########## INIT ##########
 # read and decode the hash prefix
 PREFIX_BASE64="$(
-	tar -xOf "$ARCHIVE_PATH" prefix.aes \
+	tar -xOf "$ARCHIVE_PATH" prefix.zst.aes \
 	| openssl enc -d -aes-256-cbc -pbkdf2 -md sha256 -pass env:ARKIV_PASS 2> /dev/null \
+	| zstd -d -q -c 2> /dev/null \
 	| openssl base64 -A
 )" || fail "Unable to decode prefix from archive '$ARCHIVE_PATH'."
 
