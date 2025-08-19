@@ -34,10 +34,10 @@ if ! ../../shell/arkiv-build ../a.arkiv a.txt z.txt; then
 fi
 cd - > /dev/null
 # list archive content
-if [ "$(arkiv-tree a.arkiv | grep "a.txt")" = "" ] ||
-   [ "$(arkiv-tree a.arkiv | grep "z.txt")" = "" ]; then
+if [ "$(arkiv-ls a.arkiv | grep "a.txt")" = "" ] ||
+   [ "$(arkiv-ls a.arkiv | grep "z.txt")" = "" ]; then
 	rm -rf ./a.arkiv ./res-01
-	fail "TEST 1: arkiv-tree"
+	fail "TEST 1: arkiv-ls"
 fi
 # extract the whole archive in the current directory
 if ! arkiv-extract a.arkiv ||
@@ -74,9 +74,9 @@ if ! arkiv-build a.arkiv src-02; then
 	fail "TEST 2: arkiv-build"
 fi
 # list archive content
-if [ "$(arkiv-tree a.arkiv | grep "src-02/sub2/sub3/z.txt")" = "" ]; then
+if [ "$(arkiv-ls a.arkiv | grep "src-02/sub2/sub3/z.txt")" = "" ]; then
 	rm -rf ./a.arkiv ./res-02
-	fail "TEST2: arkiv-tree"
+	fail "TEST2: arkiv-ls"
 fi
 # extract the whole archive in a sub-directory
 if ! arkiv-extract a.arkiv res-02 ||

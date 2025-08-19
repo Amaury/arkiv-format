@@ -202,11 +202,11 @@ For each input path:
 ARKIV_PASS='s3cr3t' arkiv-build backup.arkiv /etc /var/log/syslog /home/user/notes.txt
 ```
 
-### 8.2 arkiv-tree
+### 8.2 arkiv-ls
 **Synopsis**
 
 ```sh
-arkiv-tree ARCHIVE.arkiv [PREFIX]
+arkiv-ls ARCHIVE.arkiv [PREFIX]
 ```
 
 **Description**
@@ -224,10 +224,10 @@ Lists archive entries (like `ls -l`) from the metadata:
 
 ```sh
 # List entire archive
-ARKIV_PASS='s3cr3t' arkiv-tree backup.arkiv
+ARKIV_PASS='s3cr3t' arkiv-ls backup.arkiv
 
 # List a subtree
-ARKIV_PASS='s3cr3t' arkiv-tree backup.arkiv /etc/cron.d
+ARKIV_PASS='s3cr3t' arkiv-ls backup.arkiv /etc/cron.d
 ```
 
 ### 8.3 arkiv-extract

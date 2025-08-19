@@ -1,13 +1,13 @@
 #!/bin/sh
 
 # ###################################################################
-# # arkiv-tree: List entries stored in an Arkiv archive             #
+# # arkiv-ls: List entries stored in an Arkiv archive               #
 # #-----------------------------------------------------------------#
 # # Usage:                                                          #
 # # - List everything                                               #
-# #   arkiv-tree archive.arkiv                                      #
+# #   arkiv-ls archive.arkiv                                        #
 # # - List only entries under the given prefix                      #
-# #   arkiv-tree archive.arkiv /etc/cron.d                          #
+# #   arkiv-ls archive.arkiv /etc/cron.d                            #
 # #-----------------------------------------------------------------#
 # # Copyright © 2025, Amaury Bouchard <amaury@amaury.net>           #
 # # Published under the terms of the MIT license.                   #
