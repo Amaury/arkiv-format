@@ -1,14 +1,14 @@
 #!/bin/sh
 
-# ###################################################################
-# # arkiv-build: Create an Arkiv archive file and store files in it #
-# #-----------------------------------------------------------------#
-# # Usage: arkiv-build archive.arkiv file1 file2 dir1 dir2...       #
-# #-----------------------------------------------------------------#
-# # Copyright © 2025, Amaury Bouchard <amaury@amaury.net>           #
-# # Published under the terms of the MIT license.                   #
-# # https://opensource.org/license/mit                              #
-# ###################################################################
+# ####################################################################
+# # arkiv-create: Create an Arkiv archive file and store files in it #
+# #------------------------------------------------------------------#
+# # Usage: arkiv-create archive.arkiv file1 file2 dir1 dir2...       #
+# #------------------------------------------------------------------#
+# # Copyright © 2025, Amaury Bouchard <amaury@amaury.net>            #
+# # Published under the terms of the MIT license.                    #
+# # https://opensource.org/license/mit                               #
+# ####################################################################
 
 # ########## UTILITY FUNCTIONS ##########
 # Print an error message and exit.
