@@ -123,7 +123,7 @@ cleanup() {
 
 # check dependencies
 missing=""
-for cmd in openssl zstd tar sed cut tr find readlink mkfifo chmod chown stat date mktemp touch dirname; do
+for cmd in openssl zstd tar sed cut tr readlink mkfifo chmod chown stat date mktemp touch dirname; do
 	command -v "$cmd" >/dev/null 2>&1 || missing="$missing $cmd"
 done
 [ "$missing" = "" ] || fail "Missing required tools: $missing"
@@ -157,7 +157,7 @@ MAGIC="$(
 )" || fail "Corrupted archive '$ARCHIVE_PATH' (unable to read 'magic.zst')."
 [ "$MAGIC" = "arkiv001" ] || fail "Invalid or corrupted archive '$ARCHIVE_PATH' (bad magic value)."
 
-# check index
+# check index presence
 tar -tf "$ARCHIVE_PATH" index.zst.aes > /dev/null 2>&1 || fail "Corrupted archive '$ARCHIVE_PATH' (missing file 'index.zst.aes')."
 
 # check destination directory
@@ -231,7 +231,7 @@ while IFS='' read -r LINE <&3; do
 	if ! tar -xOf "$ARCHIVE_PATH" "meta/$NAME_HASH.tar.zst.aes" 2> /dev/null \
 	   | openssl enc -d -aes-256-cbc -pbkdf2 -md sha256 -pass env:ARKIV_PASS 2>/dev/null \
 	   | zstd -d -q -c 2> /dev/null \
-	   | (cd "$TEMP_DIR/$NAME_HASH" && tar -xpf -) 2> /dev/null; then
+	   | (cd "$TEMP_DIR/$NAME_HASH" && tar -xpf - "$REL") 2>/dev/null; then
 		errors=1
 		rm -rf "$TEMP_DIR/$NAME_HASH" 2> /dev/null
 		echo "Error: missing or invalid metadata file 'meta/$NAME_HASH.tar.zst.aes'." >&2
@@ -242,15 +242,15 @@ while IFS='' read -r LINE <&3; do
 	META_PATH="$TEMP_DIR/$NAME_HASH/$REL"
 	# check metadata file existence
 	if [ ! -e "$META_PATH" ] && [ ! -L "$META_PATH" ]; then
-		echo "Error: metadata path not found '$META_PATH'." >&2
+		echo "Metadata path not found '$META_PATH'." >&2
 		rm -rf "$TEMP_DIR/$NAME_HASH" 2> /dev/null
 		errors=1
 		continue
 	fi
 
-	# if we create a file/symlink/FIFO (not a directory)
-	# if a directory already exists => warning
-	# if a file/symlink/FIFO already exists => delete it
+	# collision logic: if we create a file/symlink/FIFO (not a directory)
+	# - if a directory already exists => warning
+	# - if a file/symlink/FIFO already exists => delete it
 	if [ ! -d "$META_PATH" ]; then
 		if [ -e "$OUT_PATH" ] || [ -L "$OUT_PATH" ]; then
 			if [ -d "$OUT_PATH" ] && [ ! -L "$OUT_PATH" ]; then
@@ -262,6 +262,7 @@ while IFS='' read -r LINE <&3; do
 			rm -f "$OUT_PATH" 2> /dev/null
 		fi
 	fi
+
 	# create destination file/directory/symlink/FIFO
 	if [ -L "$META_PATH" ]; then
 		# symlink

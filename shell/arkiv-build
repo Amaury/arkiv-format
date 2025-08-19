@@ -20,7 +20,7 @@ fail() {
 # Usage: cypher input_file output_file ["noerr"]
 cypher() {
 	if ! openssl enc -aes-256-cbc -pbkdf2 -md sha256 -salt -pass env:ARKIV_PASS -in "$1" -out "$2"; then
-		[ "$3" = "noerr" ] || fail "Unable to encrypt file '$1' to '$2'."
+		[ "${3-}" = "noerr" ] || fail "Unable to encrypt file '$1' to '$2'."
 		return 1
 	fi
 }
@@ -102,9 +102,8 @@ make_meta_tar() {
 		timestamp="$(date -d "@$MTIME" "+%Y%m%d%H%M.%S")" && touch -t "$timestamp" "$temp_dir/$relative_path" 2>/dev/null || true
 	elif date -r "$MTIME" "+%Y%m%d%H%M.%S" >/dev/null 2>&1; then
 		timestamp="$(date -r "$MTIME" "+%Y%m%d%H%M.%S")" && touch -t "$timestamp" "$temp_dir/$relative_path" 2>/dev/null || true
-	else
-		true
 	fi
+
 	# tar + zstd + encryption
 	if ! (cd "$temp_dir" && tar -cf - "$relative_path") | zstd -q -c | cypher /dev/stdin "$out" "noerr"; then
 		rm -rf "$temp_dir"
@@ -141,9 +140,9 @@ compress_encrypt_file() {
 		rm -rf "$temp_dir"
 		fail "Unable to compress file '$input_file'."
 	fi
-	# Close and remove the FIFO now that producer is done writing
+	# close and remove the FIFO now that producer is done writing
 	rm -f "$fifo"
-	# Check consumer's exit status (encryption stage).
+	# check consumer's exit status (encryption stage)
 	if ! wait "$cpid"; then
 		rm -rf "$temp_dir"
 		fail "Unable to encrypt file '$input_file' to '$output_file'."
@@ -206,7 +205,7 @@ for path in "$@"; do
 		find -P "$path" -mindepth 1 -print >> "$OUTPUT_DIR/paths.txt"
 	fi
 done
-sort -u "$OUTPUT_DIR/paths.txt" -o "$OUTPUT_DIR/paths.txt"
+LC_ALL=C sort -u "$OUTPUT_DIR/paths.txt" -o "$OUTPUT_DIR/paths.txt"
 
 # process files
 while IFS='' read -r SRC; do
@@ -237,7 +236,10 @@ if ! zstd -q -c -- "$OUTPUT_DIR/index.txt" | cypher /dev/stdin "$OUTPUT_DIR/inde
 fi
 
 # generate final archive
-tar -C "$OUTPUT_DIR" -cf "$OUTPUT_ARCHIVE" magic.zst prefix.zst.aes index.zst.aes meta data || { rm -rf "$OUTPUT_DIR"; fail "Tar packing failed."; }
+if ! tar -C "$OUTPUT_DIR" -cf "$OUTPUT_ARCHIVE" magic.zst prefix.zst.aes index.zst.aes meta data; then
+	rm -rf "$OUTPUT_DIR"
+	fail "Tar packing failed."
+fi
 rm -rf "$OUTPUT_DIR"
 echo "Created $OUTPUT_ARCHIVE"
 

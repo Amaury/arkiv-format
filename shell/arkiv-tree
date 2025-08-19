@@ -68,7 +68,7 @@ MAGIC="$(
 )" || fail "Corrupted archive '$ARCHIVE_PATH' (unable to read 'magic.zst')."
 [ "$MAGIC" = "arkiv001" ] || fail "Invalid or corrupted archive '$ARCHIVE_PATH' (bad magic value)."
 
-# check index
+# check index presence
 tar -tf "$ARCHIVE_PATH" index.zst.aes > /dev/null 2>&1 || fail "Corrupted archive '$ARCHIVE_PATH' (missing file 'index.zst.aes')."
 
 # ########## PROCESS ##########
@@ -80,7 +80,7 @@ PREFIX_BASE64="$(
 	| openssl base64 -A
 )" || fail "Unable to decode prefix from archive '$ARCHIVE_PATH'."
 
-# read the index line by line
+# read index line by line
 tar -xOf "$ARCHIVE_PATH" index.zst.aes 2> /dev/null \
 | openssl enc -d -aes-256-cbc -pbkdf2 -md sha256 -pass env:ARKIV_PASS 2> /dev/null \
 | zstd -d -q -c 2> /dev/null \
