@@ -27,10 +27,10 @@ export ARKIV_PASS="$(head -c 10 /dev/urandom | base64)"
 # archive creation
 mkdir res-01 || fail "TEST 1: unable to create directory 'res-01'"
 cd src-01
-if ! ../../shell/arkiv-build ../a.arkiv a.txt z.txt; then
+if ! ../../shell/arkiv-create ../a.arkiv a.txt z.txt; then
 	cd - > /dev/null
 	rm -rf ./a.arkiv ./res-01
-	fail "TEST 1: arkiv-build"
+	fail "TEST 1: arkiv-create"
 fi
 cd - > /dev/null
 # list archive content
@@ -69,9 +69,9 @@ success "TEST 1"
 # ########## TEST 2: DIRECTORIES ##########
 # archive creation
 mkdir res-02 || fail "TEST 2: unable to create directory 'res-02'"
-if ! arkiv-build a.arkiv src-02; then
+if ! arkiv-create a.arkiv src-02; then
 	rm -rf ./a.arkiv ./res-02
-	fail "TEST 2: arkiv-build"
+	fail "TEST 2: arkiv-create"
 fi
 # list archive content
 if [ "$(arkiv-ls a.arkiv | grep "src-02/sub2/sub3/z.txt")" = "" ]; then
@@ -100,9 +100,9 @@ success "TEST 2"
 # ########## TEST 3: SYMLINKS ##########
 # archive creation
 mkdir res-03 || fail "TEST 3: unable to create directory 'res-03'"
-if ! arkiv-build a.arkiv src-03; then
+if ! arkiv-create a.arkiv src-03; then
 	rm -rf ./a.arkiv ./res-03
-	fail "TEST 3: arkiv-build"
+	fail "TEST 3: arkiv-create"
 fi
 # extraction
 if ! arkiv-extract a.arkiv res-03 ||
@@ -125,9 +125,9 @@ if ! mkfifo src-04/fifo; then
 	rm -rf ./src-04 ./res-04
 	fail "TEST 4: unable to create fifo (src-04/fifo'"
 fi
-if ! arkiv-build a.arkiv src-04; then
+if ! arkiv-create a.arkiv src-04; then
 	rm -rf ./a.arkiv ./src-04 ./res-04
-	fail "TEST 4: arkiv-build"
+	fail "TEST 4: arkiv-create"
 fi
 # extraction
 if ! arkiv-extract a.arkiv res-04 ||

@@ -173,10 +173,10 @@ Example — extract the entire archive:
 
 ## 8. Command reference
 
-### 8.1 `arkiv-build`
+### 8.1 `arkiv-create`
 **Synopsis**
 ```sh
-arkiv-build ARCHIVE.arkiv PATH...
+arkiv-create ARCHIVE.arkiv PATH...
 ```
 
 **Description**
@@ -199,7 +199,7 @@ For each input path:
 
 ```sh
 # Build an archive from a directory and two files
-ARKIV_PASS='s3cr3t' arkiv-build backup.arkiv /etc /var/log/syslog /home/user/notes.txt
+ARKIV_PASS='s3cr3t' arkiv-create backup.arkiv /etc /var/log/syslog /home/user/notes.txt
 ```
 
 ### 8.2 arkiv-ls
