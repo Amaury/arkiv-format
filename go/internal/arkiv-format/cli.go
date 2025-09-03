@@ -53,12 +53,18 @@ func RunCLI(argv []string) error {
 		return r.List(prefixes)
 
 	case aliasesExtract[cmd]:
-		if len(argv) < 4 {
-			return errors.New("usage: arkiv-format extract ARCHIVE.arkiv DEST [PREFIX ...]")
+		dest := "."
+		var prefixes []string
+		if len(argv) < 3 {
+			return errors.New("usage: arkiv-format extract ARCHIVE.arkiv [DEST] [PREFIX ...]")
 		}
 		archive := argv[2]
-		dest := argv[3]
-		prefixes := argv[4:]
+		if len(argv) >= 4 {
+			dest = argv[3]
+			if len(argv) > 4 {
+				prefixes = argv[4:]
+			}
+		}
 		pass := os.Getenv(EnvPass)
 		if pass == "" {
 			return fmt.Errorf("%s must be set", EnvPass)
