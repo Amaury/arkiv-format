@@ -33,8 +33,8 @@ type Index struct {
 // form and the raw-between-quotes content.
 func escapeForIndex(path string) (quoted string, rawBetween string) {
 	// Escape backslashes first, then quotes.
-	r := strings.ReplaceAll(path, "\", "\\")
-	r = strings.ReplaceAll(r, "\"", "\\"")
+	r := strings.ReplaceAll(path, "\\", "\\\\")
+	r = strings.ReplaceAll(r, "\"", "\\\"")
 
 	// Build final quoted representation.
 	quoted = "\"" + r + "\""

@@ -53,8 +53,8 @@ func (a *ArchiveReader) Extract(dest string, prefixes []string) error {
 
 	// Helper to convert raw stored path to output filesystem path.
 	toOutPath := func(raw string) string {
-		p := strings.ReplaceAll(raw, "\\"", "\"")
-		p = strings.ReplaceAll(p, "\\", "\"")
+		p := strings.ReplaceAll(raw, "\\", "\\\\")
+		p = strings.ReplaceAll(p, "\"", "\\\"")
 		return filepath.Join(dest, p)
 	}
 

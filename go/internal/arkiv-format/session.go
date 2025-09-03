@@ -2,8 +2,6 @@ package arkivformat
 
 import (
 	"archive/tar"
-	"errors"
-	"fmt"
 	"os"
 )
 

@@ -130,7 +130,6 @@ func (w *ArchiveWriter) Create(inputs []string) error {
 		}
 
 		// Detect file type and attributes.
-		mode := fi.Mode()
 		ft, linkname, err := classifyPath(p, fi)
 		if err != nil {
 			return err

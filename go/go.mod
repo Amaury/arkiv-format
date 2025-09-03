@@ -6,4 +6,3 @@ require (
 	github.com/klauspost/compress v1.17.9
 	golang.org/x/crypto v0.25.0
 )
-

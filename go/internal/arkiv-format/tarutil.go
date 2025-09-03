@@ -2,6 +2,7 @@ package arkivformat
 
 import (
 	"archive/tar"
+	"bufio"
 	"fmt"
 	"io"
 )

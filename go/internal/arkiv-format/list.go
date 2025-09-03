@@ -146,8 +146,7 @@ func (a *ArchiveReader) List(prefixes []string) error {
 		when := formatLocalTime(mh.ModTime)
 
 		fmt.Printf(
-			"%c %04o %s %s %s
-",
+			"%c %04o %s %s %s\n",
 			typeCh,
 			mh.Mode,
 			owner,
@@ -165,8 +164,8 @@ func matchesPrefix(pathRaw string, prefixes []string) bool {
 	if len(prefixes) == 0 {
 		return true
 	}
-	unesc := strings.ReplaceAll(pathRaw, "\\"", "\"")
-	unesc = strings.ReplaceAll(unesc, "\\", "\"")
+	unesc := strings.ReplaceAll(pathRaw, "\\", "\\\\")
+	unesc = strings.ReplaceAll(unesc, "\"", "\\\"")
 	for _, p := range prefixes {
 		if strings.HasPrefix(pathRaw, p) {
 			return true
