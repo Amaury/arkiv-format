@@ -15,6 +15,5 @@ clean:
 init:
 	go mod tidy
 
-all: clean agent
-
+all: clean arkiv-format
 
