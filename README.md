@@ -26,7 +26,7 @@ Documentation and tools for the "Arkiv file format", a tar-like deduplicated, co
 5. [Deduplication](#5-deduplication)
 6. [Extraction](#6-extraction)
 7. [Integrity & security](#7-integrity--security)
-8. [Command reference - Shell implementation](#8-command-reference-shell-implementation)
+8. [Command reference - Shell implementation](#8-command-reference---shell-implementation)
    1. [arkiv-create](#81-arkiv-create)
    2. [arkiv-ls](#82-arkiv-ls)
    3. [arkiv-extract](#83-arkiv-extract)
@@ -477,5 +477,5 @@ $ rm -rf "foo.txt.meta"
 
 Copyright © 2025, Amaury Bouchard <amaury@amaury.net>
 
-Published under the terms of the MIT license.
+Published under the terms of the [MIT license](https://opensource.org/license/mit).
 
