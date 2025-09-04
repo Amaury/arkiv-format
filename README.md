@@ -30,7 +30,7 @@ Documentation and tools for the "Arkiv file format", a tar-like deduplicated, co
    1. [arkiv-create](#81-arkiv-create)
    2. [arkiv-ls](#82-arkiv-ls)
    3. [arkiv-extract](#83-arkiv-extract)
-9. [Command reference - Go implementation](#9-command-reference-go-implementation)
+9. [Command reference - Go implementation](#9-command-reference---go-implementation)
    1. [arkiv-format create](#91-arkiv-format-create)
    2. [arkiv-format ls](#92-arkiv-format-ls)
    3. [arkiv-format extract](#93-arkiv-format-extract)
