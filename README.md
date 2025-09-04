@@ -13,6 +13,33 @@ Documentation and tools for the "Arkiv file format", a tar-like deduplicated, co
 
 ---
 
+## Table of contents
+1. [Introduction](#1-introduction)
+2. [Goals & philosophy](#2-goals--philosophy)
+3. [Algorithms & tooling](#3-algorithms--tooling)
+4. [Archive structure](#4-archive-structure)
+   1. [magic.zst](#41-magiczst)
+   2. [prefix.zst.aes](#42-prefixzstaes)
+   3. [index.zst.aes](#43-indexzstaes)
+   4. [meta/](#44-meta)
+   5. [data/](#45-data)
+5. [Deduplication](#5-deduplication)
+6. [Extraction](#6-extraction)
+7. [Integrity & security](#7-integrity--security)
+8. [Command reference - Shell implementation](#8-command-reference-shell-implementation)
+   1. [arkiv-create](#81-arkiv-create)
+   2. [arkiv-ls](#82-arkiv-ls)
+   3. [arkiv-extract](#83-arkiv-extract)
+9. [Command reference - Go implementation](#9-command-reference-go-implementation)
+   1. [arkiv-format create](#91-arkiv-format-create)
+   2. [arkiv-format ls](#92-arkiv-format-ls)
+   3. [arkiv-format extract](#93-arkiv-format-extract)
+10. [Working without the arkiv-format tools](#10-working-without-the-arkiv-format-tools)
+- [Appendix A. License](#appendix-a-license)
+
+
+---
+
 ## 1. Introduction
 
 **Arkiv format** demonstrates how to combine **deduplication**, **encryption**,
@@ -171,7 +198,7 @@ Example — extract the entire archive:
 
 ---
 
-## 8. Command reference
+## 8. Command reference - Shell implementation
 
 ### 8.1 `arkiv-create`
 **Synopsis**
@@ -265,7 +292,102 @@ ARKIV_PASS='s3cr3t' arkiv-extract backup.arkiv ./restore/cron.d "/etc/cron.d"
 
 ---
 
-## 9. Working without the helper scripts
+## 9. Command reference - Go implementation
+
+### 9.1 `arkiv-format create`
+**Synopsis**
+```sh
+arkiv-format create ARCHIVE.arkiv PATH...
+```
+
+**Description**
+
+Builds an **immutable** Arkiv archive from the given inputs.
+
+For each input path:
+- If it is a **directory (not a symlink)**, Arkiv includes the directory itself **and** all its descendants (recursively, symlinks not followed).
+- For **every path** (file/dir/symlink/FIFO), Arkiv writes a **meta** entry (`meta/<HASH_NAME>.tar.zst.aes`) capturing the metadata (type, mode, uid/gid, mtime, link target…).
+- For **regular files**, Arkiv writes or reuses a **data** blob (`data/<HASH_DATA>.zst.aes`) with **zstd** + **AES‑256‑CBC**; identical contents are deduplicated.
+- `index.zst.aes` receives one line per path:
+  - Regular file: `"PATH"=HASH_DATA`
+  - Directory / symlink / FIFO: `"PATH"`
+
+**Environment**
+
+- `ARKIV_PASS`: password used to encrypt all members (except `magic.zst`).
+
+**Examples**
+
+```sh
+# Build an archive from a directory and two files
+ARKIV_PASS='s3cr3t' arkiv-format create backup.arkiv /etc /var/log/syslog /home/user/notes.txt
+```
+
+### 9.2 arkiv-format ls
+**Synopsis**
+
+```sh
+arkiv-format ls ARCHIVE.arkiv [PREFIX]
+```
+
+**Description**
+
+Lists archive entries (like `ls -l`) from the metadata:
+
+- If `PREFIX` is given, only entries under that subtree are listed.
+- Uses metadata tars (`meta/<HASH_NAME>.tar.zst.aes`) to display file type, permissions, ownership, and timestamps.
+
+**Environment**
+
+`ARKIV_PASS`: password used to decrypt all members.
+
+**Examples**
+
+```sh
+# List entire archive
+ARKIV_PASS='s3cr3t' arkiv-format ls backup.arkiv
+
+# List a subtree
+ARKIV_PASS='s3cr3t' arkiv-ls backup.arkiv /etc/cron.d
+```
+
+### 9.3 arkiv-format extract
+**Synopsis**
+
+```sh
+arkiv-format extract ARCHIVE.arkiv [DEST] [PREFIXES]
+```
+
+**Description**
+
+Extracts the whole archive, one file or a complete subtree into DEST:
+- The tool selects the exact `"PATH"` entry and, if it’s a directory, all entries beneath it.
+- For each selected entry, it restores the type and metadata (best‑effort), and for regular files it restores the content from `data/<HASH_DATA>.zst.aes`.
+
+**Environment**
+
+- `ARKIV_PASS`: password used to decrypt all members.
+
+**Examples**
+
+```sh
+# Extract the whole archive in the current directory
+ARKIV_PASS='s3cr3t' arkiv-format extract backup.arkiv
+
+# Extract the whole archive in the given destination directory
+ARKIV_PASS='s3cr3t' arkiv-format extract backup.arkiv ./restore/
+
+# Extract a single file
+ARKIV_PASS='s3cr3t' arkiv-format extract backup.arkiv ./restore/notes.txt "/home/user/notes.txt"
+
+# Extract a whole directory recursively
+ARKIV_PASS='s3cr3t' arkiv-format extract backup.arkiv ./restore/cron.d "/etc/cron.d"
+```
+
+---
+
+
+## 10. Working without the arkiv-format tools
 
 You can manipulate an Arkiv archive using only Unix tools.
 
