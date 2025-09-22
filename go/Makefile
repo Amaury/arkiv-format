@@ -1,12 +1,19 @@
-.PHONY: init doc clean all
+.PHONY: doc clean init dev dist
 
 doc:
-	@echo "make arkiv-format     Compile the executable file."
-	@echo "make clean            Remove compiled executable file."
-	@echo "make all              Remove and then compile the executable file."
-	@echo "make init             Initialize Go dependencies"
+	@echo "$$(tput setab 4)$$(tput bold) Arkiv-format Makefile $$(tput sgr0)"
+	@echo "make dev     $$(tput dim)Compile the executable file for the current platform.$$(tput sgr0)"
+	@echo "make dist    $$(tput dim)Compile executable files for all supported platforms.$$(tput sgr0)"
+	@echo "make clean   $$(tput dim)Remove compiled executable file.$$(tput sgr0)"
+	@echo "make init    $$(tput dim)Initialize Go dependencies.$$(tput sgr0)"
 
-arkiv-format:
+clean:
+	rm -f arkiv-format*
+
+init:
+	go mod tidy
+
+dev:
 	go build -o arkiv-format ./cmd/arkiv-format
 
 dist:
@@ -78,12 +85,4 @@ dist:
 	GOOS=windows GOARCH=arm64 CGO_ENABLED=0 go build -ldflags="-s -w" -o arkiv-format_windows-arm_64.exe ./cmd/arkiv-format
 	GOOS=windows GOARCH=386 CGO_ENABLED=0 go build -ldflags="-s -w" -o arkiv-format_windows-x86_32.exe ./cmd/arkiv-format
 	GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-s -w" -o arkiv-format_windows-x86_64.exe ./cmd/arkiv-format
-
-clean:
-	rm -f arkiv-format*
-
-init:
-	go mod tidy
-
-all: clean arkiv-format
 
