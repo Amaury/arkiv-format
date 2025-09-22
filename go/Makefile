@@ -1,11 +1,11 @@
-.PHONY: doc clean init dev dist
+.PHONY: help clean init dev dist
 
-doc:
+help:
 	@echo "$$(tput setab 4)$$(tput bold) Arkiv-format Makefile $$(tput sgr0)"
+	@echo "make init    $$(tput dim)Initialize Go dependencies.$$(tput sgr0)"
 	@echo "make dev     $$(tput dim)Compile the executable file for the current platform.$$(tput sgr0)"
 	@echo "make dist    $$(tput dim)Compile executable files for all supported platforms.$$(tput sgr0)"
-	@echo "make clean   $$(tput dim)Remove compiled executable file.$$(tput sgr0)"
-	@echo "make init    $$(tput dim)Initialize Go dependencies.$$(tput sgr0)"
+	@echo "make clean   $$(tput dim)Remove all compiled executable file.$$(tput sgr0)"
 
 clean:
 	rm -f arkiv-format*
@@ -14,7 +14,7 @@ init:
 	go mod tidy
 
 dev:
-	go build -o arkiv-format ./cmd/arkiv-format
+	CGO_ENABLED=0 go build -o arkiv-format ./cmd/arkiv-format
 
 dist:
 	GOOS=aix GOARCH=ppc64 CGO_ENABLED=0 go build -ldflags="-s -w" -o arkiv-format_aix-ppc_64 ./cmd/arkiv-format
